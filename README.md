@@ -1,207 +1,259 @@
 # H.E.L.E.N.A
+
 ### Highly Efficient Logic Engine Network Assistant
 
-A free, local-first terminal AI assistant. Conversation runs entirely on your
-machine through Ollama — no API keys, no per-token cost, no data sent to a
-third party. Weather and market data come from free, keyless public APIs.
+A local-first agentic harness, in two parts:
+
+1. **`helena_server`** — a FastAPI service that actually runs the models, through
+   [Ollama](https://ollama.com). Chat, streaming, tool calling, vision, embeddings,
+   and persisted sessions, over a clean HTTP API.
+2. **`helena_harness`** — a full terminal agent that talks to that server. It reads
+   and edits files, runs commands, searches the web, looks at images, delegates to
+   subagents, and asks your permission before it changes anything.
+
+Nothing leaves your machine. No API keys, no per-token cost, no third party — the
+only outbound traffic is what you explicitly ask for (a web search, a URL fetch,
+weather, market data).
+
+```
+┌──────────────────┐   HTTP/SSE    ┌──────────────────┐   HTTP    ┌────────┐
+│  terminal agent  │ ────────────► │  FastAPI server  │ ────────► │ Ollama │
+│  helena_harness  │ ◄──────────── │  helena_server   │ ◄──────── │ models │
+└──────────────────┘  tokens +     └──────────────────┘           └────────┘
+   tools · permissions   tool calls    sessions · vision
+   subagents · files                   embeddings · pulls
+```
+
+The split matters: the server never executes a tool. It reports what the model
+asked for and hands the decision back to the harness, which is where the
+permission system lives. Your models can also move to a beefier machine on the
+LAN without the harness noticing — point `HELENA_SERVER_URL` at it.
 
 ---
 
-## Requirements
+## Install
 
-→ Node.js 18 or newer (uses native `fetch`)
-→ [Ollama](https://ollama.com) installed and running, for the conversational layer
-  (weather and stock commands work without it)
-
-## Setup
+Requires Python 3.10+ and [Ollama](https://ollama.com).
 
 ```bash
-# 1. Install Ollama (macOS / Linux / Windows — see ollama.com)
-#    then pull a model:
-ollama pull llama3.1
+git clone <this repo> && cd RogerCraig
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
 
-# 2. Install HELENA
-cd helena
-npm link        # makes the `helena` command available globally
-# or run directly without linking:
-node bin/helena.js
+# A tool-calling model is required for agentic work:
+ollama pull qwen2.5:7b-instruct
+# Optional, for images:
+ollama pull llava
 ```
 
-Start Ollama's server in the background (usually automatic after install,
-otherwise run `ollama serve`), then launch HELENA:
+Then just:
 
 ```bash
 helena
 ```
 
-## Usage
-
-```
-you > /weather
-you > /stocks
-you > /stock american airlines
-you > /stock AAL
-you > /location set "Bend, Oregon"
-you > /search when was the eiffel tower built
-you > /read ./notes.md
-you > /image ./photo.jpg what's in this picture?
-you > /remember I'm a full-stack developer working mostly in Next.js
-you > /project add "FitTrack" 
-you > /schedule add stretch at 3pm
-you > /schedule add call mom tomorrow at 6pm
-you > /schedule list
-you > what's a good rest day workout?
-```
-
-Run `/help` inside HELENA for the full command list.
-
-## Scheduled reminders
-
-`/schedule add <text> at <time>` accepts `3pm`, `at 3:30pm`, `in 20 minutes`,
-`tomorrow at 9am`, `tomorrow`, or an ISO-ish date/time like `2026-08-12 09:00`.
-HELENA checks every 15 seconds for anything due:
-
-→ If you're idle, it interrupts the prompt with the reminder and restores
-  whatever you'd half-typed.
-→ If you're mid-conversation when it comes due, it waits — your message
-  gets answered first, and the reminder is appended right after.
-
-Reminders are marked as fired the moment they trigger, so they never repeat,
-even across restarts (this is tracked in `profile.json`, not just in memory).
-
-## Vision and files
-
-`/read <filepath>` loads a text or code file into the current session's
-context — HELENA can then answer questions about it for the rest of the
-session (not persisted between runs). `/image <filepath> [question]` sends
-an image to a locally-run vision model via Ollama. This requires pulling a
-multimodal model separately, e.g.:
+The harness starts a model server automatically if one isn't already running.
+To run it yourself (recommended if you want it shared, remote, or long-lived):
 
 ```bash
-ollama pull llava
+helena-server               # http://127.0.0.1:8080, docs at /docs
 ```
 
-Switch which vision model is used with `/model vision <name>`.
+## Using it
 
-## Search
+```
+you › what does the agent loop in helena_harness do?
+you › add a --json flag to the CLI and make the tests pass
+you › /image ~/Desktop/error.png what's this stack trace about?
+you › /search fastapi background tasks vs celery
+you › /mode plan          # read-only: investigate and propose, change nothing
+you › /agent explorer where is permission checking done?
+```
 
-`/search <query>` is a free, keyless "quick facts" lookup — it checks
-DuckDuckGo's Instant Answer API first, then falls back to a Wikipedia
-summary. It is not a general web-results engine (no free keyless one
-exists), so obscure, very current, or highly specific queries may come
-back empty. Full agentic web browsing is a larger project — see Roadmap.
+Slash commands (`/help` for the full list):
 
-## Real actions (not narrated ones)
+| | |
+|---|---|
+| `/model`, `/models`, `/pull` | switch, list, download models |
+| `/mode`, `/permissions` | permission mode and rules |
+| `/tools`, `/agents`, `/agent` | what it can do; run a subagent directly |
+| `/image`, `/read`, `/search` | attach an image, load a file, search the web |
+| `/session`, `/compact`, `/clear`, `/cost` | conversation management |
+| `/memory`, `/remember`, `/init` | project instructions and durable facts |
+| `/jobs`, `/doctor`, `/cd`, `/stream` | background commands, diagnostics, setup |
 
-Earlier versions of HELENA would sometimes *claim* to open apps, search the
-web, or control Spotify in plain conversation without actually doing
-anything — the model was just narrating what a JARVIS-style assistant would
-plausibly say, since nothing was stopping it. That's fixed: action-shaped
-messages ("close spotify", "search for X on chrome", "get directions to
-the nearest donut shop") now route through real Ollama tool-calling. The
-model is offered a fixed set of actual tools; if it calls one, HELENA
-executes it for real via the OS and feeds the true result back before
-replying — so the reply is grounded in what actually happened, not guessed.
+One-shot mode, for scripts:
 
-Supported actions: open/close an app, open a URL (optionally in a specific
-browser), search the web in a browser, get Apple Maps directions (macOS),
-search Spotify (opens the app to results — it can't start playback
-automatically, since that needs Spotify's authenticated Web API, which is
-out of scope for a free/keyless local tool), take a screenshot, set system
-volume, create a Notes.app note, and check battery/system status. Weather,
-stock lookups, market snapshots, and reminders are also real tools now
-(see below) — not lumped in with generic web search anymore.
+```bash
+helena -p "run the tests and summarize failures" --mode auto
+git diff | helena -p "review this diff" --mode plan
+```
 
-Every plain message is offered the full tool set — there's no keyword
-gate deciding whether to bother checking anymore, since that reliably
-missed real requests phrased less predictably ("using chrome find out X").
-It costs one extra round trip before the reply starts streaming, worth it
-for actually doing what's asked instead of guessing wrong about intent.
+## Tools
 
-If a tool call succeeds or fails, the model is told the literal true
-result as plain fact before it replies — not replayed through Ollama's
-tool-message protocol, which several local models don't reliably honor
-and would otherwise let the model contradict an action that just
-genuinely worked.
+| tool | permission | what it does |
+|---|---|---|
+| `read_file` | read | file contents with line numbers, offset/limit for big files |
+| `list_dir`, `find_files` | read | directory listing, glob search |
+| `search_text` | read | regex content search across the tree (`grep -rn`) |
+| `edit_file` | write | exact-string replacement; requires a prior read |
+| `write_file`, `delete_path` | write | create/overwrite, remove a file or empty dir |
+| `run_command` | execute | real shell execution, with timeouts and background jobs |
+| `check_job` | read | inspect or kill a background command |
+| `web_search` | network | DuckDuckGo results + instant answers |
+| `fetch_url` | network | fetch a page and convert it to readable text |
+| `analyze_image` | read | ask a multimodal model about an image or screenshot |
+| `todo_write` | — | the visible task list for multi-step work |
+| `spawn_agent` | — | delegate to a subagent (below) |
+| `get_weather`, `get_stock`, `add_reminder`, `remember`, `get_time` | mixed | the original HELENA assistant features, kept |
 
-This requires a tool-calling-capable model (llama3.1, qwen2.5, and
-mistral-nemo all support it in Ollama). If your model doesn't, HELENA falls
-back to a plain reply rather than erroring out.
+## Permissions
 
-Scope is intentionally narrow: named apps, URLs, and search/map queries —
-not general shell access. Letting an LLM's free-text output execute
-arbitrary commands is a real prompt-injection risk (a malicious file or
-webpage could try to trigger it); every action here is bounded to a
-specific, harmless operation instead.
+Every tool call is classified and checked before it runs. Four modes:
 
-## Weather, stocks, and reminders without slash commands
+| mode | reads | file edits | commands |
+|---|---|---|---|
+| `ask` (default) | run | ask | ask |
+| `auto` | run | run | ask |
+| `plan` | run | **refused** | **refused** |
+| `yolo` | run | run | run |
 
-These now work as real tools the model can call directly from plain
-language — "what's the weather like", "how's AAPL doing", "remind me to
-call mom at 3pm" — using the actual weather/stock/scheduling code paths,
-not a browser search. The system prompt explicitly tells the model to
-prefer these specific tools over generic web search for their categories,
-and to only call a tool when a message is actually asking for one of these
-things — not for ordinary conversation, opinions, or small talk. The
-`/weather`, `/stock`, `/stocks`, and `/schedule` commands still work too,
-as an instant deterministic fast path when you want it.
+When asked, you get a panel showing exactly what will happen — the command, or a
+diff of the edit — and four answers: yes once, yes and always allow this, yes for
+this session, or no. "Always" writes a rule to `.helena/settings.json`:
 
-## RAM, speed, and model choice
+```json
+{
+  "allow": ["run_command(pytest:*)", "read_file(*)", "write_file(src/**)"],
+  "deny": ["run_command(git push:*)"],
+  "mode": "auto"
+}
+```
 
-Ollama sizes its memory usage largely off two things: which model you've
-pulled, and its context window (`num_ctx`). Two concrete levers:
+Rules are `tool(pattern)`; `cmd:*` is a prefix match, `src/**` is a glob, a bare
+tool name matches all its calls. Deny beats allow, always. Aliases (`Bash`,
+`Read`, `Write`, `Edit`) work if you have muscle memory from elsewhere.
 
-→ **Use a quantized model.** `ollama pull llama3.1` grabs a large default
-  quantization; `ollama pull llama3.1:8b-instruct-q4_K_M` (or similar
-  `q4_K_M` tags) uses roughly a third of the RAM with a modest quality
-  trade-off. `qwen2.5:7b-instruct-q4_K_M` is a good balance of size, speed,
-  and tool-calling reliability if you want to try something other than
-  llama3.1.
-→ **Context window is capped at 4096 tokens by default** (`/model context
-  <n>` to change it). Some models default their context capacity far
-  higher than that (llama3.1 defaults to 128k), and Ollama allocates KV
-  cache proportional to that number regardless of how short your actual
-  conversation is — which is very likely the biggest single contributor to
-  unexpectedly high RAM usage. Dropping to 2048 saves more RAM at the cost
-  of the model "seeing" less conversation history at once.
+Two rails are not negotiable:
 
-Neither of these makes the underlying model itself smarter — that's a
-property of which model you choose, not this tool. `qwen2.5` and `llama3.1`
-are both solid, well-rounded choices; heavier models (`qwen2.5:14b`,
-`llama3.1:70b`) are meaningfully more capable but need proportionally more
-RAM even quantized.
+* **Some commands are always refused** — `rm -rf /`, `mkfs`, writing to a raw
+  block device, fork bombs — in every mode including `yolo`. Commands are judged
+  per segment with quoted strings removed, so `echo "rm -rf /"` and
+  `git commit -m "remove rm -rf / from docs"` are correctly left alone.
+* **Some are always confirmed** even in `auto` — `git push`, `sudo`, recursive
+  deletes, piping a download into a shell, publishing a package.
 
+File tools are also confined to the workspace directory unless you pass
+`--allow-outside-workspace`. That's a guard against a wandering model, not a
+sandbox: `run_command` can still reach the rest of the filesystem, because a
+terminal agent that can't run your build is useless. If you want real isolation,
+run the whole thing in a container.
 
+## Subagents
 
-→ **Weather** — [Open-Meteo](https://open-meteo.com) (forecast + geocoding)
-→ **Location auto-detect** — chained across [ipapi.co](https://ipapi.co), [ipwho.is](https://ipwho.is), and [ip-api.com](https://ip-api.com); each has its own free-tier rate limit, so this tries each in turn before giving up
-→ **Market data** — [Yahoo Finance](https://finance.yahoo.com)'s public chart/search endpoints (Stooq's quote endpoint started requiring an emailed/captcha API key in April 2026 and was dropped)
-→ **Search** — [DuckDuckGo Instant Answer API](https://duckduckgo.com/api) + [Wikipedia](https://www.wikipedia.org)
-→ **Conversation and vision** — [Ollama](https://ollama.com), any locally pulled text or multimodal model
+`spawn_agent` runs a task in a *separate* conversation with its own tool set and
+returns only a summary. On a local model this is mostly about context: a search
+that would take fifteen tool calls and 40k tokens of file dumps comes back as a
+paragraph, which matters far more when the window is 8k than when it's a million.
 
-## A note on "real-time" stock data
+| agent | tools | for |
+|---|---|---|
+| `explorer` | read-only | "where is X handled", broad code search |
+| `researcher` | web | documentation, error messages, current information |
+| `coder` | read + write + shell | a scoped, well-specified implementation |
+| `reviewer` | read + shell | correctness review of code or a diff |
+| `generalist` | everything but nesting | multi-step work that fits nothing else |
 
-Yahoo's free, unauthenticated feed is what every keyless tool like this
-ultimately relies on — it typically runs ~15 minutes behind during live
-trading, and outside market hours it correctly shows the last actual trade
-(not stale data — the market genuinely isn't moving). `/stock` also surfaces
-pre-market/after-hours indicative prices when Yahoo has them, which is the
-closest thing to "more current" outside the 9:30am-4:00pm ET window. Truly
-real-time, tick-by-tick data requires a paid feed; there's no free keyless
-source for that.
+Subagents share the parent's permission engine — approvals surface to you, and a
+subagent can never do something the parent couldn't. Nesting is capped
+(`subagent_max_depth`, default 2).
 
-## Roadmap ideas
+## The server API
 
-→ Tool-calling: let the model decide when to pull weather/stock/search data
-  mid-conversation instead of requiring explicit `/commands`
-→ Full agentic web browsing (e.g. via a local SearXNG instance) beyond
-  quick-answer search
-→ Persistent multi-session conversation history, not just the structured profile
-→ Voice input/output
-→ Recurring reminders (currently one-shot only)
+Interactive docs at `http://127.0.0.1:8080/docs`.
+
+| endpoint | |
+|---|---|
+| `GET /health` | server + Ollama status, model count |
+| `GET /v1/models` | installed models with inferred tool/vision capability |
+| `POST /v1/models/pull` | download a model, SSE progress |
+| `POST /v1/chat` | one completion; `stream: true` switches to SSE |
+| `POST /v1/chat/stream` | SSE: `token` → `tool_calls` → `done` (with usage) |
+| `POST /v1/vision` · `/v1/vision/upload` | images as base64 or multipart upload |
+| `POST /v1/embeddings` | vectors from an embedding model |
+| `/v1/sessions...` | create, list, read, append, rename, delete (sqlite) |
+
+```bash
+curl -sN localhost:8080/v1/chat/stream -H 'content-type: application/json' -d '{
+  "messages": [{"role": "user", "content": "explain SSE in one sentence"}]
+}'
+```
+
+Set `HELENA_API_TOKEN` to require `Authorization: Bearer <token>` on `/v1/*`
+(`/health` stays open so a client can still diagnose a bad token). Unset — the
+default — means no auth, which is right for a process bound to localhost.
 
 ## Configuration
 
-Set `HELENA_OLLAMA_HOST` as an environment variable if Ollama runs somewhere
-other than `http://localhost:11434`. Switch models anytime with `/model <name>`
-or `/model vision <name>`.
+Everything has a working default. Layers, later wins:
+
+```
+~/.helena/settings.json          your defaults
+<workspace>/.helena/settings.json  this project
+HELENA_* environment variables   this launch
+command-line flags               this run
+```
+
+`allow`/`deny` lists are merged across layers rather than overwritten, so a
+project can add grants without discarding your global ones. See `.env.example`
+for the server's variables, and `helena --help` for flags.
+
+`HELENA.md` at the workspace root is loaded into the system prompt every turn —
+put project conventions there. `/init` writes one by exploring the project.
+(`CLAUDE.md` or `AGENTS.md` are used as fallbacks if you already keep one.)
+
+## Choosing a model
+
+Two levers dominate on local hardware:
+
+* **Tool calling is required.** `qwen2.5`, `qwen3`, `llama3.1`/`3.2`/`3.3`,
+  `mistral-nemo`, `gpt-oss`, and `command-r` all support it in Ollama.
+  `/doctor` lists which of your installed models qualify. A model without it
+  will talk about using tools instead of using them — the harness recovers
+  tool calls emitted as plain JSON text, which papers over the gap, but only
+  partly.
+* **Context window is memory.** Ollama sizes its KV cache off `num_ctx`
+  regardless of how short your conversation is, and agentic loops carry real
+  tool output. 8192 is the default here; drop to 4096 if RAM is tight, raise it
+  if you have headroom. Quantized tags (`:7b-instruct-q4_K_M`) cut memory
+  roughly threefold for a modest quality cost.
+
+## Development
+
+```bash
+pytest                    # 131 tests, no Ollama required
+python -m pyflakes helena_server helena_harness
+```
+
+The tests fake Ollama and nothing else: the agent-loop suite drives the real
+harness client over ASGI into the real FastAPI app, so a green run means the
+whole chain works — tool schemas out, tool calls back, permission gate,
+execution, results fed to the next turn.
+
+```
+helena_server/     app.py routes · ollama.py client · store.py sqlite · schemas.py
+helena_harness/    agent.py loop · repl.py terminal · permissions.py · tools/
+tests/             server, permissions, file tools, shell/web, agent loop, config
+```
+
+## What happened to the JavaScript version
+
+This replaces it. The original HELENA (Node + Ollama, `helena.js` and friends) was
+a conversational assistant with weather, stocks, reminders, and macOS app control.
+Those features are still here as tools; what's new is that it can now actually
+work on your code — read, edit, run, verify — with a permission model that makes
+that safe to leave running. The old files are in git history at commit `446d81c`.
+
+## License
+
+MIT

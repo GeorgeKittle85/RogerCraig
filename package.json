@@ -1,0 +1,16 @@
+{
+  "name": "helena",
+  "version": "0.1.0",
+  "description": "H.E.L.E.N.A — Highly Efficient Logic Engine Network Assistant. A free, local-first terminal AI assistant.",
+  "type": "module",
+  "bin": {
+    "helena": "./bin/helena.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node ./bin/helena.js"
+  },
+  "license": "MIT"
+}

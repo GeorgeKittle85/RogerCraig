@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Stops whatever start.sh started: helena_server and, if this stack was the
-# one that launched it, ollama. Processes not started by start.sh (no
+# Stops whatever start.sh started: the web chat UI, helena_server and, if this
+# stack was the one that launched it, ollama. Processes not started by start.sh (no
 # pidfile, or a pidfile pointing at a since-recycled pid) are left alone.
 set -uo pipefail
 
@@ -46,5 +46,6 @@ stop_pidfile() {
   echo "$name: stopped"
 }
 
+stop_pidfile "chat UI" "$RUN_DIR/web.pid" "helena_web"
 stop_pidfile "helena_server" "$RUN_DIR/server.pid" "helena_server"
 stop_pidfile "ollama" "$RUN_DIR/ollama.pid" "ollama"

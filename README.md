@@ -2,7 +2,7 @@
 
 ### Highly Efficient Logic Engine Network Assistant
 
-A local-first agentic harness, in two parts:
+A local-first agentic harness, in three parts:
 
 1. **`helena_server`** — a FastAPI service that actually runs the models, through
    [Ollama](https://ollama.com). Chat, streaming, tool calling, vision, embeddings,
@@ -10,18 +10,28 @@ A local-first agentic harness, in two parts:
 2. **`helena_harness`** — a full terminal agent that talks to that server. It reads
    and edits files, runs commands, searches the web, looks at images, delegates to
    subagents, and asks your permission before it changes anything.
+3. **`helena_web`** — the same agent in a browser, on port 7995. A React chat UI
+   over a thin FastAPI layer whose sessions *subclass the terminal REPL*, so every
+   slash command, permission prompt and tool is the one you already know.
 
 Nothing leaves your machine. No API keys, no per-token cost, no third party — the
 only outbound traffic is what you explicitly ask for (a web search, a URL fetch,
 weather, market data).
 
 ```
-┌──────────────────┐   HTTP/SSE    ┌──────────────────┐   HTTP    ┌────────┐
-│  terminal agent  │ ────────────► │  FastAPI server  │ ────────► │ Ollama │
-│  helena_harness  │ ◄──────────── │  helena_server   │ ◄──────── │ models │
-└──────────────────┘  tokens +     └──────────────────┘           └────────┘
-   tools · permissions   tool calls    sessions · vision
-   subagents · files                   embeddings · pulls
+┌──────────────────┐
+│  React chat UI   │  browser, :7995
+└────────┬─────────┘
+         │ HTTP + SSE (events: tokens, tool cards, permission prompts)
+┌────────┴─────────┐   HTTP/SSE    ┌──────────────────┐   HTTP    ┌────────┐
+│  the harness     │ ────────────► │  FastAPI server  │ ────────► │ Ollama │
+│  agent · tools   │ ◄──────────── │  helena_server   │ ◄──────── │ models │
+│  permissions     │  tokens +     └──────────────────┘           └────────┘
+└────────┬─────────┘   tool calls     sessions · vision
+         │                            embeddings · pulls
+┌────────┴─────────┐
+│  terminal agent  │  helena
+└──────────────────┘
 ```
 
 The split matters: the server never executes a tool. It reports what the model
@@ -46,14 +56,24 @@ ollama pull qwen2.5:7b-instruct
 ollama pull llava
 ```
 
-Then just:
+Then either surface:
 
 ```bash
-helena
+helena                      # the terminal agent
+helena-web                  # the chat UI at http://127.0.0.1:7995
 ```
 
-The harness starts a model server automatically if one isn't already running.
-To run it yourself (recommended if you want it shared, remote, or long-lived):
+Both start a model server automatically if one isn't already running. To run the
+whole stack — Ollama, the model server, and the web UI — as background processes:
+
+```bash
+./start.sh                  # ./start.sh --no-web to leave the browser out
+./stop.sh
+```
+
+`start.sh` builds the React client the first time (and whenever its sources
+change), so Node is only needed if you want the browser UI. To run the model
+server on its own — shared, remote, or long-lived:
 
 ```bash
 helena-server               # http://127.0.0.1:8080, docs at /docs
@@ -88,6 +108,52 @@ One-shot mode, for scripts:
 helena -p "run the tests and summarize failures" --mode auto
 git diff | helena -p "review this diff" --mode plan
 ```
+
+## The chat UI
+
+```bash
+helena-web                      # http://127.0.0.1:7995
+helena-web --open               # ...and open a browser
+helena-web -C ~/code/api --mode auto
+```
+
+Everything the terminal does, the browser does, because it is the same object: a
+web chat session is a subclass of the terminal REPL, and every line you type goes
+through the same `handle_line`. `/mode plan`, `/doctor`, `/agent explorer …`,
+`/pull llama3.1` — all of it, with `/` opening a completion menu built from the
+same command list the terminal completes from.
+
+What the browser adds is what a browser is good at:
+
+* **Tool cards.** Each call is a row — icon, one-line preview, result — that
+  expands to the diff or the captured output.
+* **Permission prompts inline.** The same four answers (`y` once, `a` always,
+  `s` this session, `n` no), as buttons or as those keystrokes, with the diff of
+  the pending edit above them. Nothing runs until you answer.
+* **Attachments.** Drop or paste a file: images run `/image` (including the
+  vision-model fallback when your chat model can't see), anything else runs
+  `/read`.
+* **A model picker** in the composer, and a **Launch** panel with server and
+  Ollama health, the permission mode, and the diagnostic commands one click away.
+* **Chats that survive a restart.** Each one keeps its own model, mode and
+  workspace, and reloads from `.helena/web/chats/` with its history intact.
+* **Live output.** Replies stream token by token over SSE; `Esc` or the stop
+  button interrupts a running turn exactly as Ctrl-C does in the terminal.
+
+Reconnects resume from the last event they saw rather than replaying the
+conversation, and two tabs open on the same chat stay in step.
+
+### Developing the client
+
+```bash
+cd helena_web/ui
+npm install
+npm run dev            # Vite on :5173, proxying /api to :7995
+npm run build          # what helena-web serves from ui/dist
+```
+
+The React app is a build artifact and is not checked in; `./start.sh` builds it
+when it is missing or stale. `helena-web` says so plainly if it cannot find it.
 
 ## Tools
 
@@ -189,6 +255,13 @@ curl -sN localhost:8080/v1/chat/stream -H 'content-type: application/json' -d '{
 }'
 ```
 
+The web UI has its own small API on port 7995, in front of the harness rather
+than the models: `/api/chats` to create, list and delete conversations,
+`/api/chats/{id}/message` to send one line, `/api/chats/{id}/events` for the SSE
+event stream, and `/api/chats/{id}/permission` to answer a prompt. It binds to
+localhost and carries no auth of its own — it can run commands as you, so do not
+expose it.
+
 Set `HELENA_API_TOKEN` to require `Authorization: Bearer <token>` on `/v1/*`
 (`/health` stays open so a client can still diagnose a bad token). Unset — the
 default — means no auth, which is right for a process bound to localhost.
@@ -231,8 +304,8 @@ Two levers dominate on local hardware:
 ## Development
 
 ```bash
-pytest                    # 131 tests, no Ollama required
-python -m pyflakes helena_server helena_harness
+pytest                    # 158 tests, no Ollama required
+python3 -m pyflakes helena_server helena_harness helena_web
 ```
 
 The tests fake Ollama and nothing else: the agent-loop suite drives the real
@@ -243,8 +316,13 @@ execution, results fed to the next turn.
 ```
 helena_server/     app.py routes · ollama.py client · store.py sqlite · schemas.py
 helena_harness/    agent.py loop · repl.py terminal · permissions.py · tools/
-tests/             server, permissions, file tools, shell/web, agent loop, config
+helena_web/        app.py routes · session.py (Repl subclass) · ui.py events · ui/ React
+tests/             server, permissions, file tools, shell/web, agent loop, config, web
 ```
+
+The web tests drive the real FastAPI app over ASGI into a real `WebSession` into
+the real model server, so they cover the whole chain: a message in, a permission
+prompt out, an answer back, a file actually written.
 
 ## What happened to the JavaScript version
 

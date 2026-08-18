@@ -37,8 +37,8 @@ Requires Python 3.10+ and [Ollama](https://ollama.com).
 
 ```bash
 git clone <this repo> && cd RogerCraig
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+python3 -m venv .venv && source .venv/bin/activate
+pip3 install -e ".[dev]"
 
 # A tool-calling model is required for agentic work:
 ollama pull qwen2.5:7b-instruct

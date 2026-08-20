@@ -41,6 +41,22 @@ class OllamaError(RuntimeError):
         self.status_code = status_code
 
 
+# Some Ollama-hosted models — Qwen3.x variants in particular — ship a chat
+# template with a hard `raise_exception` guard that fires when the template's
+# own backward scan for the most recent plain user turn comes up empty. It's a
+# bug in the model's template, not in what we send it, and it can trip even on
+# a well-formed multi-round tool-calling conversation. It's recoverable,
+# though: appending one more plain user message anchors the scan, so a single
+# retry with that nudge added is enough to get past it instead of failing the
+# whole turn.
+_MISSING_USER_QUERY_SIGNATURE = "no user query found in messages"
+CHAT_TEMPLATE_RETRY_NUDGE: dict[str, Any] = {"role": "user", "content": "(continue)"}
+
+
+def _is_retryable_template_bug(exc: "OllamaError") -> bool:
+    return exc.status_code == 502 and _MISSING_USER_QUERY_SIGNATURE in str(exc).lower()
+
+
 def infer_capabilities(name: str, families: list[str] | None = None) -> tuple[bool, bool]:
     """Return (supports_vision, supports_tools) inferred from a model name."""
     haystack = name.lower() + " " + " ".join(families or []).lower()
@@ -50,12 +66,18 @@ def infer_capabilities(name: str, families: list[str] | None = None) -> tuple[bo
 
 
 class OllamaClient:
-    def __init__(self, host: str, timeout: float = 600.0) -> None:
+    def __init__(
+        self,
+        host: str,
+        timeout: float = 600.0,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
         self.host = host.rstrip("/")
         self._timeout = timeout
         self._client = httpx.AsyncClient(
             base_url=self.host,
             timeout=httpx.Timeout(timeout, connect=10.0),
+            transport=transport,
         )
 
     async def aclose(self) -> None:
@@ -181,7 +203,14 @@ class OllamaClient:
             model=model, messages=messages, tools=tools, options=options,
             stream=False, fmt=fmt, keep_alive=keep_alive,
         )
-        return await self._post("/api/chat", payload)
+        try:
+            return await self._post("/api/chat", payload)
+        except OllamaError as exc:
+            if not _is_retryable_template_bug(exc):
+                raise
+            retry_payload = dict(payload)
+            retry_payload["messages"] = [*messages, CHAT_TEMPLATE_RETRY_NUDGE]
+            return await self._post("/api/chat", retry_payload)
 
     async def chat_stream(
         self,
@@ -197,7 +226,21 @@ class OllamaClient:
             model=model, messages=messages, tools=tools, options=options,
             stream=True, fmt=fmt, keep_alive=keep_alive,
         )
-        async for chunk in self._stream_ndjson("/api/chat", payload):
+        yielded = False
+        try:
+            async for chunk in self._stream_ndjson("/api/chat", payload):
+                yielded = True
+                yield chunk
+            return
+        except OllamaError as exc:
+            # Once tokens have started arriving, the template already
+            # rendered fine — a later failure is something else, and
+            # retrying would just duplicate output onto the client.
+            if yielded or not _is_retryable_template_bug(exc):
+                raise
+        retry_payload = dict(payload)
+        retry_payload["messages"] = [*messages, CHAT_TEMPLATE_RETRY_NUDGE]
+        async for chunk in self._stream_ndjson("/api/chat", retry_payload):
             yield chunk
 
     async def embed(self, *, model: str, inputs: list[str]) -> list[list[float]]:

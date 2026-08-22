@@ -286,6 +286,14 @@ for the server's variables, and `helena --help` for flags.
 put project conventions there. `/init` writes one by exploring the project.
 (`CLAUDE.md` or `AGENTS.md` are used as fallbacks if you already keep one.)
 
+[`system-prompt.md`](system-prompt.md) at the repo root *is* the agent's live
+system prompt — `agent.py` reads it fresh on every turn and fills in
+`<<AGENT_NAME>>`, `<<ENVIRONMENT>>`, `<<MEMORY>>`, and `<<PROFILE>>`. Edit it
+to change how HELENA behaves; there's no separate copy baked into the code. It
+is deliberately kept tight — every token here is a token not available for
+tool schemas (~3.5k already, across 20 tools) and conversation, and the
+default `num_ctx` is only 8192.
+
 ## Choosing a model
 
 Two levers dominate on local hardware:

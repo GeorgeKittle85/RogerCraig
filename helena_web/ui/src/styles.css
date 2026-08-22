@@ -332,6 +332,38 @@ table.grid td:first-child { color: var(--muted); white-space: nowrap; }
 }
 .permission .resolved { margin-top: 10px; color: var(--muted); font-size: 12.5px; }
 
+/* --- question (ask_user_question) --------------------------------------- */
+
+.question {
+  border: 1px solid var(--accent-dim);
+  border-radius: var(--radius);
+  background: #1d2322;
+  padding: 12px 14px;
+}
+.question.answered { border-color: var(--line); background: #1c1c1c; opacity: 0.75; }
+.question .head { display: flex; align-items: center; gap: 8px; color: var(--accent); font-size: 12px; margin-bottom: 8px; }
+.question .what { color: var(--text); word-break: break-word; }
+.question .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.question .actions button {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  padding: 6px 12px; border-radius: 8px; background: var(--accent-dim); font-size: 13px;
+  transition: background 120ms ease; text-align: left;
+}
+.question .actions button:hover { background: #37837d; }
+.question .actions .option-hint { font-size: 11px; color: var(--faint); }
+.question .freeform { display: flex; gap: 8px; margin-top: 10px; }
+.question .freeform input {
+  flex: 1; background: var(--raised); border: 1px solid var(--line); border-radius: 8px;
+  padding: 6px 10px; font-size: 13px; color: var(--text);
+}
+.question .freeform button {
+  padding: 6px 12px; border-radius: 8px; background: var(--raised); font-size: 13px;
+  transition: background 120ms ease;
+}
+.question .freeform button:hover:not(:disabled) { background: var(--raised-hi); }
+.question .freeform button:disabled { opacity: 0.5; cursor: default; }
+.question .resolved { margin-top: 10px; color: var(--muted); font-size: 12.5px; }
+
 /* --- composer ---------------------------------------------------------- */
 
 .composer-wrap { padding: 0 20px 26px; }

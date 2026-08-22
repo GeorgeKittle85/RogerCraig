@@ -171,6 +171,7 @@ when it is missing or stale. `helena-web` says so plainly if it cannot find it.
 | `analyze_image` | read | ask a multimodal model about an image or screenshot |
 | `todo_write` | — | the visible task list for multi-step work |
 | `spawn_agent` | — | delegate to a subagent (below) |
+| `ask_user_question` | — | ask the user a question mid-task and get the answer back without ending the turn |
 | `get_weather`, `get_stock`, `add_reminder`, `remember`, `get_time` | mixed | the original HELENA assistant features, kept |
 
 ## Permissions

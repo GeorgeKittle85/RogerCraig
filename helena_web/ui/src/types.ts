@@ -22,6 +22,8 @@ export type EventType =
   | "usage"
   | "permission"
   | "permission_resolved"
+  | "question"
+  | "question_resolved"
   | "state";
 
 export interface HelenaEvent {
@@ -110,6 +112,15 @@ export type Item =
       danger: string;
       reason: string;
       agent: string;
+      answer: string | null;
+      note: string;
+    }
+  | {
+      kind: "question";
+      seq: number;
+      id: string;
+      question: string;
+      options: { label: string; description: string }[];
       answer: string | null;
       note: string;
     };

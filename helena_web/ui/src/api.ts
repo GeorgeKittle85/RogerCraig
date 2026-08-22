@@ -60,6 +60,12 @@ export const api = {
       body: JSON.stringify({ id: requestId, answer }),
     }),
 
+  answerQuestion: (id: string, requestId: string, answer: string) =>
+    json<{ answered: string }>(`/api/chats/${id}/question`, {
+      method: "POST",
+      body: JSON.stringify({ id: requestId, answer }),
+    }),
+
   upload: async (id: string, file: File) => {
     const body = new FormData();
     body.append("file", file);

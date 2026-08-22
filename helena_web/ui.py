@@ -36,6 +36,7 @@ class WebUI(UI):
         self._stream_parts: list[str] = []
         self._label = "HELENA"
         self.pending_permissions: dict[str, asyncio.Future[str]] = {}
+        self.pending_questions: dict[str, asyncio.Future[str | None]] = {}
 
     # --- plumbing ----------------------------------------------------------
 
@@ -207,3 +208,41 @@ class WebUI(UI):
             if not future.done():
                 future.set_result("no")
                 self.emit("permission_resolved", id=request_id, answer="no", note="interrupted")
+
+    # --- model-asked question -----------------------------------------------
+
+    async def ask_user_question(self, question: str, options: list[dict[str, str]]) -> str | None:
+        """Emit a question prompt and wait for the browser to answer it."""
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[str | None] = loop.create_future()
+        request_id = f"question-{self.hub.last_seq + 1}"
+        self.pending_questions[request_id] = future
+
+        self.emit("question", id=request_id, question=question, options=options)
+        try:
+            answer = await asyncio.wait_for(asyncio.shield(future), timeout=PERMISSION_TIMEOUT)
+        except asyncio.TimeoutError:
+            answer = None
+            self.emit("question_resolved", id=request_id, answer=None,
+                      note="timed out waiting for an answer")
+        except asyncio.CancelledError:
+            self.emit("question_resolved", id=request_id, answer=None, note="interrupted")
+            raise
+        finally:
+            self.pending_questions.pop(request_id, None)
+        return answer
+
+    def answer_question(self, request_id: str, answer: str) -> bool:
+        """Resolve a pending question. Returns False if it is already gone."""
+        future = self.pending_questions.get(request_id)
+        if future is None or future.done():
+            return False
+        future.set_result(answer)
+        self.emit("question_resolved", id=request_id, answer=answer)
+        return True
+
+    def cancel_questions(self) -> None:
+        for request_id, future in list(self.pending_questions.items()):
+            if not future.done():
+                future.set_result(None)
+                self.emit("question_resolved", id=request_id, answer=None, note="interrupted")

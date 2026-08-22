@@ -244,6 +244,34 @@ export function applyEvent(state: Transcript, event: HelenaEvent): Transcript {
       break;
     }
 
+    case "question":
+      push({
+        kind: "question",
+        seq: event.seq,
+        id: str(event.id),
+        question: str(event.question),
+        options: (event.options as { label: string; description: string }[]) ?? [],
+        answer: null,
+        note: "",
+      });
+      break;
+
+    case "question_resolved": {
+      const id = str(event.id);
+      for (let i = items.length - 1; i >= 0; i -= 1) {
+        const item = items[i];
+        if (item.kind === "question" && item.id === id) {
+          items[i] = {
+            ...item,
+            answer: event.answer === null || event.answer === undefined ? "" : str(event.answer),
+            note: str(event.note),
+          };
+          break;
+        }
+      }
+      break;
+    }
+
     case "state":
       break; // handled by the app, not the transcript
 
@@ -263,6 +291,15 @@ export function pendingPermission(state: Transcript): Extract<Item, { kind: "per
   for (let i = state.items.length - 1; i >= 0; i -= 1) {
     const item = state.items[i];
     if (item.kind === "permission" && item.answer === null) return item;
+  }
+  return null;
+}
+
+/** The pending ask_user_question prompt, if the agent is waiting on one. */
+export function pendingQuestion(state: Transcript): Extract<Item, { kind: "question" }> | null {
+  for (let i = state.items.length - 1; i >= 0; i -= 1) {
+    const item = state.items[i];
+    if (item.kind === "question" && item.answer === null) return item;
   }
   return null;
 }

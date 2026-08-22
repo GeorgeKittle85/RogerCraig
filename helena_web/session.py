@@ -139,6 +139,7 @@ class WebSession(Repl):
     def interrupt(self) -> bool:
         """Ctrl-C, from a browser: cancel the running turn."""
         self.web_ui.cancel_permissions()
+        self.web_ui.cancel_questions()
         task = self._current_task or self._turn_task
         if task and not task.done():
             task.cancel()

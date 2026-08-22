@@ -52,6 +52,11 @@ class PermissionBody(BaseModel):
     answer: str
 
 
+class QuestionBody(BaseModel):
+    id: str
+    answer: str = Field(max_length=20_000)
+
+
 class RenameBody(BaseModel):
     title: str
 
@@ -206,6 +211,16 @@ def create_app(workspace: Path | None = None, overrides: dict[str, Any] | None =
                                 detail="answer must be once | always | session | no")
         if not session.web_ui.answer_permission(body.id, answer):
             raise HTTPException(status_code=409, detail="That prompt is no longer waiting.")
+        return {"answered": answer}
+
+    @app.post("/api/chats/{chat_id}/question")
+    async def answer_question(chat_id: str, body: QuestionBody) -> dict[str, Any]:
+        session = chat_or_404(chat_id)
+        answer = body.answer.strip()
+        if not answer:
+            raise HTTPException(status_code=400, detail="answer must not be empty")
+        if not session.web_ui.answer_question(body.id, answer):
+            raise HTTPException(status_code=409, detail="That question is no longer waiting.")
         return {"answered": answer}
 
     @app.post("/api/chats/{chat_id}/upload")

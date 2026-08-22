@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from .agent import SpawnAgentTool
+from .ask import AskUserQuestionTool
 from .base import Tool, ToolContext, ToolError, ToolResult
 from .extras import RememberTool, RemindTool, StockTool, TimeTool, WeatherTool
 from .files import (
@@ -46,6 +47,7 @@ TOOL_CLASSES: list[type[Tool]] = [
     AnalyzeImageTool,
     TodoWriteTool,
     SpawnAgentTool,
+    AskUserQuestionTool,
     WeatherTool,
     StockTool,
     RemindTool,

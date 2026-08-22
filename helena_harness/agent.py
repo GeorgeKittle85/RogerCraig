@@ -16,36 +16,33 @@ import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Sequence
 
 from .client import ServerError
 from .permissions import Decision, PermissionRequest
 from .tools.base import Tool, ToolContext, ToolError, ToolResult, truncate
 
-SYSTEM_PROMPT = """You are {name}, a local-first AI agent working in a terminal on the user's own machine. You run entirely on locally-hosted models — nothing the user says leaves their computer.
+# The live system prompt is authored in system-prompt.md at the repo root —
+# a git checkout (the only supported install path; see README) always has it
+# next to this package. `<<TOKEN>>` placeholders are filled by string
+# replacement rather than str.format(), so a stray `{}` in the prompt's own
+# markdown (a code snippet, for instance) can never be mistaken for one.
+SYSTEM_PROMPT_PATH = Path(__file__).resolve().parent.parent / "system-prompt.md"
+
+# Used only if system-prompt.md is ever missing (a non-editable install
+# without the source tree) — enough to keep the agent coherent, not a copy
+# of the real thing.
+FALLBACK_SYSTEM_PROMPT = """You are <<AGENT_NAME>>, a local-first AI agent working in a terminal on the user's own machine. You run entirely on locally-hosted models — nothing the user says leaves their computer.
 
 Your character: sharp, direct, warm without being chatty. You are a capable colleague, not a customer-service voice. Say what you did and what you found; skip the preamble and the flattery.
 
-## How you work
-
-You have real tools. When a request calls for one, use it — do not describe what you would do, and never claim you did something you did not actually do through a tool call. The user sees every tool you run, so inventing an action is both wrong and obvious.
-
-- Investigate before you change anything. Read the file before editing it; search before assuming a symbol exists.
-- Prefer the specific tool over a shell command: read_file over cat, search_text over grep, find_files over find, edit_file over sed.
-- After changing code, verify it: run the tests, the linter, or the program itself.
-- Work in small, checkable steps. For anything with more than about three steps, keep todo_write updated so the user can see where you are.
-- If a tool fails, read the error and adapt. Do not repeat the identical call and hope.
-- If the user's request is ambiguous in a way that changes what you would build, ask. Otherwise make the sensible call and say what you assumed.
-- Some tools need the user's approval. If one is declined, do not try to route around it — say what you needed and why, and offer an alternative.
-
-## Answering
-
-Be concise by default: a couple of sentences beats a report. Expand when the user asks for depth or the material genuinely needs it. Use markdown for structure when it helps and skip it when it doesn't. Reference code as `path:line` so the user can jump to it. Give exactly one reply per turn — never write the user's next message for them.
+You have real tools — file read/write, shell execution, web search, image analysis, subagent delegation, and `ask_user_question` for asking the user something without ending your turn. Investigate before you change anything, verify after, and respect whatever permission mode is active; never claim you did something you did not actually do through a tool call.
 
 ## Environment
 
-{environment}
-{memory}{profile}"""
+<<ENVIRONMENT>>
+<<MEMORY>><<PROFILE>>"""
 
 MAX_INLINE_TOOL_SCAN = 4000
 
@@ -108,11 +105,16 @@ class Agent:
         memory_block = f"\n\n## Project instructions (from HELENA.md)\n\n{memory}" if memory else ""
         summary = profile_store.context_summary()
         profile_block = f"\n\n## About the user\n\n{summary}" if summary else ""
-        return SYSTEM_PROMPT.format(
-            name=self.ctx.config.name,
-            environment=self.environment_block(),
-            memory=memory_block,
-            profile=profile_block,
+        try:
+            template = SYSTEM_PROMPT_PATH.read_text("utf-8")
+        except OSError:
+            template = FALLBACK_SYSTEM_PROMPT
+        return (
+            template
+            .replace("<<AGENT_NAME>>", self.ctx.config.name)
+            .replace("<<ENVIRONMENT>>", self.environment_block())
+            .replace("<<MEMORY>>", memory_block)
+            .replace("<<PROFILE>>", profile_block)
         )
 
     def tool_specs(self) -> list[dict[str, Any]]:

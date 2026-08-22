@@ -209,7 +209,10 @@ export default function App() {
   const answer = useCallback(
     (requestId: string, value: string) => {
       if (!activeId) return;
-      api.answerPermission(activeId, requestId, value).catch((exc: Error) => complain(exc.message));
+      const call = requestId.startsWith("question-")
+        ? api.answerQuestion(activeId, requestId, value)
+        : api.answerPermission(activeId, requestId, value);
+      call.catch((exc: Error) => complain(exc.message));
     },
     [activeId, complain],
   );

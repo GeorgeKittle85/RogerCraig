@@ -25,7 +25,7 @@ TOOL_ICONS = {
     "list_dir": "▤", "find_files": "⌕", "search_text": "⌕", "run_command": "❯",
     "check_job": "◷", "web_search": "🌐", "fetch_url": "🌐", "analyze_image": "▣",
     "todo_write": "☑", "spawn_agent": "⛬", "get_weather": "☁", "get_stock": "$",
-    "add_reminder": "⏰", "remember": "✦", "get_time": "◷",
+    "add_reminder": "⏰", "remember": "✦", "get_time": "◷", "ask_user_question": "❓",
 }
 
 STATUS_MARK = {"completed": "[green]✔[/green]", "in_progress": "[yellow]▸[/yellow]", "pending": "[dim]○[/dim]"}
@@ -255,6 +255,43 @@ class UI:
             "s": "session", "session": "session",
             "n": "no", "no": "no",
         }.get(answer, "no")
+
+    # --- model-asked question -----------------------------------------------
+
+    async def ask_user_question(self, question: str, options: list[dict[str, str]]) -> str | None:
+        """Blocking prompt for a question the model asked mid-task.
+
+        Returns the user's answer, or None if nobody answered (no TTY, or the
+        prompt was interrupted) — the caller treats that as "proceed without
+        an answer", not as an error.
+        """
+        if self.quiet or self.prompt_session is None:
+            return None
+
+        header = Text()
+        header.append("❓ question", style="bold cyan")
+        self.console.print()
+        self.console.print(
+            Panel(Text(question, style="bold"), title=header, border_style="cyan", expand=False)
+        )
+        if options:
+            for i, opt in enumerate(options, 1):
+                line = f"  [{i}] {opt['label']}"
+                if opt.get("description"):
+                    line += f" — {opt['description']}"
+                self.console.print(Text(line, style="dim"))
+            self.console.print(Text("  Type a number, or write your own answer.", style="dim"))
+
+        try:
+            raw = (await self.prompt_session.prompt_async("  answer › ")).strip()
+        except (EOFError, KeyboardInterrupt):
+            return None
+        if not raw:
+            return None
+        for i, opt in enumerate(options, 1):
+            if raw == str(i):
+                return opt["label"]
+        return raw
 
 
 class SilentUI(UI):

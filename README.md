@@ -171,6 +171,7 @@ when it is missing or stale. `helena-web` says so plainly if it cannot find it.
 | `analyze_image` | read | ask a multimodal model about an image or screenshot |
 | `todo_write` | — | the visible task list for multi-step work |
 | `spawn_agent` | — | delegate to a subagent (below) |
+| `ask_user_question` | — | ask the user a question mid-task and get the answer back without ending the turn |
 | `get_weather`, `get_stock`, `add_reminder`, `remember`, `get_time` | mixed | the original HELENA assistant features, kept |
 
 ## Permissions
@@ -284,6 +285,14 @@ for the server's variables, and `helena --help` for flags.
 `HELENA.md` at the workspace root is loaded into the system prompt every turn —
 put project conventions there. `/init` writes one by exploring the project.
 (`CLAUDE.md` or `AGENTS.md` are used as fallbacks if you already keep one.)
+
+[`system-prompt.md`](system-prompt.md) at the repo root *is* the agent's live
+system prompt — `agent.py` reads it fresh on every turn and fills in
+`<<AGENT_NAME>>`, `<<ENVIRONMENT>>`, `<<MEMORY>>`, and `<<PROFILE>>`. Edit it
+to change how HELENA behaves; there's no separate copy baked into the code. It
+is deliberately kept tight — every token here is a token not available for
+tool schemas (~3.5k already, across 20 tools) and conversation, and the
+default `num_ctx` is only 8192.
 
 ## Choosing a model
 

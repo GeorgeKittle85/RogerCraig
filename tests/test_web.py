@@ -370,6 +370,75 @@ async def test_a_bad_answer_is_rejected(client):
     assert bad.status_code == 400
 
 
+# --- ask_user_question ------------------------------------------------------
+
+ASK_CALL = {
+    "content": "Let me check with you first.",
+    "tool_calls": [
+        {
+            "function": {
+                "name": "ask_user_question",
+                "arguments": {
+                    "question": "Which database do you want?",
+                    "options": [{"label": "Postgres", "description": "already used elsewhere"}],
+                },
+            }
+        }
+    ],
+}
+
+
+async def test_ask_user_question_flow(client, web_env):
+    _workspace, ollama = web_env
+    ollama.replies = [ASK_CALL, {"content": "Using Postgres, as you said."}]
+    chat_id = await new_chat(client)
+
+    await client.post(f"/api/chats/{chat_id}/message", json={"text": "set up a database"})
+    session = client.app.state.manager.get(chat_id)
+
+    # The turn parks on the question until the browser answers — the turn task
+    # itself is still running, unlike a completed reply.
+    for _ in range(200):
+        if session.web_ui.pending_questions:
+            break
+        await asyncio.sleep(0.02)
+    request_id = next(iter(session.web_ui.pending_questions))
+    assert not session._turn_task.done()
+
+    answered = await client.post(
+        f"/api/chats/{chat_id}/question", json={"id": request_id, "answer": "Postgres"}
+    )
+    assert answered.status_code == 200
+    await asyncio.wait_for(asyncio.shield(session._turn_task), timeout=20)
+
+    events = (await client.get(f"/api/chats/{chat_id}")).json()["events"]
+    asked = first(events, "question")
+    assert asked["question"] == "Which database do you want?"
+    assert asked["options"] == [{"label": "Postgres", "description": "already used elsewhere"}]
+    assert first(events, "question_resolved")["answer"] == "Postgres"
+
+    result = first(events, "tool_result")
+    assert result["ok"] is True and result["id"] == first(events, "tool_start")["id"]
+    # The same turn continued past the question to the model's next reply.
+    assert "Postgres" in ollama.calls[-1]["messages"][-1]["content"]
+
+
+async def test_answering_a_stale_question_is_a_conflict(client):
+    chat_id = await new_chat(client)
+    stale = await client.post(
+        f"/api/chats/{chat_id}/question", json={"id": "question-99", "answer": "Postgres"}
+    )
+    assert stale.status_code == 409
+
+
+async def test_an_empty_question_answer_is_rejected(client):
+    chat_id = await new_chat(client)
+    bad = await client.post(
+        f"/api/chats/{chat_id}/question", json={"id": "question-1", "answer": "   "}
+    )
+    assert bad.status_code == 400
+
+
 # --- interrupting ---------------------------------------------------------
 
 async def test_interrupt_cancels_the_turn(client, web_env):

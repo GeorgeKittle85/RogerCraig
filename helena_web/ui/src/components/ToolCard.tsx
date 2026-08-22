@@ -9,7 +9,7 @@ export const TOOL_ICONS: Record<string, string> = {
   list_dir: "▤", find_files: "⌕", search_text: "⌕", run_command: "❯",
   check_job: "◷", web_search: "🌐", fetch_url: "🌐", analyze_image: "▣",
   todo_write: "☑", spawn_agent: "⛬", get_weather: "☁", get_stock: "$",
-  add_reminder: "⏰", remember: "✦", get_time: "◷",
+  add_reminder: "⏰", remember: "✦", get_time: "◷", ask_user_question: "❓",
 };
 
 type ToolItem = Extract<Item, { kind: "tool" }>;

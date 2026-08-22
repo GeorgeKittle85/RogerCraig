@@ -2,6 +2,7 @@ import { memo } from "react";
 import type { Item } from "../types";
 import { Markdown } from "./Markdown";
 import { PermissionCard } from "./PermissionCard";
+import { QuestionCard } from "./QuestionCard";
 import { ToolCard } from "./ToolCard";
 
 const STATUS_MARK: Record<string, string> = {
@@ -147,6 +148,13 @@ function Block({ item, onAnswer }: { item: Item; onAnswer: (id: string, answer: 
       return (
         <div className="item">
           <PermissionCard item={item} onAnswer={(answer) => onAnswer(item.id, answer)} />
+        </div>
+      );
+
+    case "question":
+      return (
+        <div className="item">
+          <QuestionCard item={item} onAnswer={(answer) => onAnswer(item.id, answer)} />
         </div>
       );
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "helena"
-version = "2.0.1"
+version = "2.1.0"
 description = "H.E.L.E.N.A — a local-first agentic harness: a FastAPI model server over Ollama, plus a full-featured terminal agent."
 readme = "README.md"
 requires-python = ">=3.10"
